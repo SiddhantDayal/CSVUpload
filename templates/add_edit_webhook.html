@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block styles %}
+<style>
+    .form-container {
+        background: #fff;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        max-width: 600px;
+        margin: 40px auto;
+    }
+    .form-container h1 {
+        margin-top: 0;
+        color: #343a40;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #495057;
+    }
+    .form-group input[type="text"],
+    .form-group select {
+        width: calc(100% - 22px);
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 16px;
+    }
+    .form-group input[type="checkbox"] {
+        margin-right: 8px;
+    }
+    .form-group input[type="checkbox"] + label {
+        display: inline-block;
+        margin-bottom: 0;
+        font-weight: 400;
+    }
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 30px;
+    }
+    .form-actions button, .form-actions a {
+        padding: 10px 20px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+    }
+    .form-actions button[type="submit"] {
+        background-color: #007bff;
+        color: white;
+    }
+    .form-actions button[type="submit"]:hover {
+        background-color: #0056b3;
+    }
+    .form-actions .cancel-btn {
+        background-color: #6c757d;
+        color: white;
+    }
+    .form-actions .cancel-btn:hover {
+        background-color: #5a6268;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <h1>{{ title }}</h1>
+
+    {# Flash messages display #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages">
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        <div class="form-group">
+            <label for="url">Webhook URL:</label>
+            <input type="text" id="url" name="url" value="{{ webhook.url if webhook else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label for="event_type">Event Type:</label>
+            <select id="event_type" name="event_type" required>
+                {% for etype in possible_event_types %}
+                    <option value="{{ etype }}" {% if webhook and webhook.event_type == etype %}selected{% endif %}>{{ etype }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <input type="checkbox" id="enabled" name="enabled" {% if webhook and webhook.enabled %}checked{% elif not webhook %}checked{% endif %}>
+            <label for="enabled">Enabled</label>
+        </div>
+        <div class="form-actions">
+            <button type="submit">Save</button>
+            <a href="{{ url_for('list_webhooks') }}" class="cancel-btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

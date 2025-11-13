@@ -46,6 +46,7 @@
         <div class="nav-tabs">
             <a href="{{ url_for('home') }}" class="{% if active_page == 'upload' %}active{% endif %}">Upload</a>
             <a href="{{ url_for('list_products') }}" class="{% if active_page == 'products' %}active{% endif %}">Products</a>
+            <a href="{{ url_for('list_webhooks') }}" class="{% if active_page == 'webhooks' %}active{% endif %}">Webhooks</a>
         </div>
     </nav>
     <main class="container">
