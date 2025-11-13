@@ -45,10 +45,6 @@
     #upload-form button:hover { 
         background-color: #0056b3; 
     }
-    #upload-form button:disabled {
-        background-color: #cccccc; /* Greyed out */
-        cursor: not-allowed;
-    }
     #progress-bar-container { 
         width: 100%; 
         background-color: #e9ecef; 
@@ -97,20 +93,7 @@
     const statusDiv = document.getElementById('status');
     const progressBarContainer = document.getElementById('progress-bar-container');
     const progressBar = document.getElementById('progress-bar');
-
-    function setFormEnabled(enabled) {
-        submitButton.disabled = !enabled;
-        if (enabled) {
-            submitButton.textContent = 'Upload and Process';
-            progressBarContainer.style.display = 'none';
-            statusDiv.textContent = 'Select a file and click "Upload" to begin.';
-            statusDiv.style.color = '#495057';
-        } else {
-            submitButton.textContent = 'Processing...';
-            progressBarContainer.style.display = 'block';
-        }
-        // File input state is managed separately or left enabled
-    }
+    let currentPollingInterval = null; // To store the interval ID
 
     // Function to clear task_id from session on backend
     function clearUploadSession() {
@@ -122,18 +105,32 @@
             .catch(error => console.error('Error clearing upload session:', error));
     }
 
-    function pollTaskStatus(taskId) {
-        let interval = setInterval(() => {
+    function stopPolling() {
+        if (currentPollingInterval) {
+            clearInterval(currentPollingInterval);
+            currentPollingInterval = null;
+        }
+    }
+
+    function startPolling(taskId) {
+        stopPolling(); // Stop any existing polling
+        
+        // Show progress bar
+        progressBarContainer.style.display = 'block';
+        submitButton.textContent = 'Processing...';
+
+        currentPollingInterval = setInterval(() => {
             fetch(`/check-upload-status`) // Use check-upload-status to leverage session tracking
                 .then(response => response.json())
                 .then(data => {
                     // console.log("Polling response:", data);
                     if (data.status === "no_active_upload" || data.state === undefined || data.state === 'REVOKED') {
                         // Task ID cleared from session or task not found, implies completion/failure from backend cleanup
-                        clearInterval(interval);
-                        setFormEnabled(true);
+                        stopPolling();
                         statusDiv.textContent = 'No active upload found. Ready for new upload.';
                         statusDiv.style.color = '#495057';
+                        submitButton.textContent = 'Upload and Process'; // Reset button text
+                        progressBarContainer.style.display = 'none'; // Hide progress bar
                         return;
                     }
 
@@ -149,7 +146,7 @@
                     }
 
                     if (data.state === 'SUCCESS') {
-                        clearInterval(interval);
+                        stopPolling();
                         statusDiv.textContent = 'Import complete!';
                         statusDiv.style.color = 'green';
                         progressBar.style.width = '100%';
@@ -159,29 +156,30 @@
                             window.location.href = "{{ url_for('list_products') }}";
                         }, 1000);
                     } else if (data.state === 'FAILURE') {
-                        clearInterval(interval);
+                        stopPolling();
                         statusDiv.textContent = 'Import failed: ' + data.status;
                         statusDiv.style.color = 'red';
                         clearUploadSession(); // Clear session on failure
-                        setFormEnabled(true); // Re-enable form
+                        submitButton.textContent = 'Upload and Process'; // Reset button text
                     }
                 })
                 .catch(error => {
-                    clearInterval(interval);
+                    stopPolling();
                     console.error('Error polling status:', error);
-                    statusDiv.textContent = 'Error fetching status. See console.';
+                    statusDiv.textContent = 'Error fetching status. Ready for new upload.';
                     statusDiv.style.color = 'red';
                     clearUploadSession(); // Clear session on network error during polling
-                    setFormEnabled(true); // Re-enable form
+                    submitButton.textContent = 'Upload and Process'; // Reset button text
                 });
         }, 2000); // Poll every 2 seconds
     }
 
     // --- On page load, check for active upload ---
     document.addEventListener('DOMContentLoaded', function() {
-        // Do NOT disable form initially. Assume enabled.
+        submitButton.textContent = 'Checking for active uploads...'; // Initial button text
+        submitButton.disabled = true; // Temporarily disable button
         progressBarContainer.style.display = 'none'; // Hide progress container by default
-        statusDiv.textContent = 'Checking for active uploads...'; // Initial message
+        statusDiv.textContent = 'Checking for active uploads...'; // Initial status message
 
         fetch('/check-upload-status')
             .then(response => response.json())
@@ -189,27 +187,28 @@
                 // console.log("Initial check response:", data);
                 if (data.status === "no_active_upload" || data.state === 'SUCCESS' || data.state === 'FAILURE' || data.state === 'REVOKED') {
                     // No active upload, or task completed/failed/revoked in background
-                    setFormEnabled(true); // Ensure form is enabled
+                    submitButton.disabled = false; // Enable button
+                    submitButton.textContent = 'Upload and Process';
                     statusDiv.textContent = data.status === "no_active_upload" ? 'Ready for new upload.' : `Last upload: ${data.status}`;
                     statusDiv.style.color = data.state === 'FAILURE' ? 'red' : '#495057';
                     progressBarContainer.style.display = 'none'; // Hide if no active upload
                 } else {
-                    // Active upload found, disable submit button and start polling
-                    setFormEnabled(false); // Disable submit button
+                    // Active upload found, start polling
+                    submitButton.disabled = false; // Enable button (user can upload a new file)
                     statusDiv.textContent = data.status;
                     if (data.progress !== undefined) {
                         progressBar.style.width = data.progress + '%';
                         progressBar.textContent = data.progress + '%';
                     }
-                    progressBarContainer.style.display = 'block'; // Show progress bar
-                    pollTaskStatus(data.task_id); // task_id comes with data from check-upload-status if active
+                    startPolling(data.task_id); // Start polling for the found active task
                 }
             })
             .catch(error => {
                 console.error('Error on initial upload status check:', error);
                 statusDiv.textContent = 'Error checking for active upload. Ready for new upload.';
                 statusDiv.style.color = 'red';
-                setFormEnabled(true); // Re-enable form on error
+                submitButton.disabled = false; // Enable button on error
+                submitButton.textContent = 'Upload and Process';
                 progressBarContainer.style.display = 'none';
             });
     });
@@ -218,22 +217,25 @@
     uploadForm.addEventListener('submit', function(e) {
         e.preventDefault();
         
-        // Disable submit button immediately on submission to prevent double submission
-        setFormEnabled(false);
-        progressBarContainer.style.display = 'block';
-        progressBar.style.width = '0%';
-        progressBar.textContent = '0%';
+        stopPolling(); // Stop any previous polling for an old task
+
+        submitButton.textContent = 'Uploading...';
+        submitButton.disabled = true; // Disable temporarily while sending file
 
         if (!fileInput.files || fileInput.files.length === 0) {
             statusDiv.textContent = 'Please select a file to upload.';
             statusDiv.style.color = 'red';
-            setFormEnabled(true); // Re-enable if no file selected
+            submitButton.disabled = false; // Re-enable if no file selected
+            submitButton.textContent = 'Upload and Process';
             progressBarContainer.style.display = 'none';
             return;
         }
 
         statusDiv.textContent = 'Uploading...';
         statusDiv.style.color = '#495057';
+        progressBarContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
         
         var formData = new FormData(this);
         fetch('/upload', {
@@ -246,20 +248,22 @@
                 statusDiv.textContent = 'Error: ' + data.error;
                 statusDiv.style.color = 'red';
                 progressBarContainer.style.display = 'none';
-                setFormEnabled(true);
+                submitButton.disabled = false; // Re-enable on error
+                submitButton.textContent = 'Upload and Process';
                 return;
             }
             statusDiv.textContent = 'Processing...';
-            pollTaskStatus(data.task_id);
+            submitButton.disabled = false; // Re-enable after task is dispatched
+            startPolling(data.task_id); // Start polling for the new task
         })
         .catch(error => {
             console.error('Error:', error);
             statusDiv.textContent = 'Upload failed. See console for details.';
             statusDiv.style.color = 'red';
             progressBarContainer.style.display = 'none';
-            setFormEnabled(true);
+            submitButton.disabled = false; // Re-enable on error
+            submitButton.textContent = 'Upload and Process';
         });
     });
-
 </script>
 {% endblock %}

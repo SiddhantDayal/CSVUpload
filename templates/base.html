@@ -61,6 +61,9 @@
             border: none;
             cursor: pointer;
             text-align: center;
+            box-sizing: border-box; /* Ensure padding/border don't add to total width/height */
+            line-height: normal;   /* Normalize line height */
+            vertical-align: middle; /* Align vertically */
         }
         .add-btn { background-color: #28a745; color: white; }
         .add-btn:hover { background-color: #218838; }
