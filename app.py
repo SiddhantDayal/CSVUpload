@@ -25,7 +25,7 @@ celery = make_celery(app)
 
 @app.route("/")
 def home():
-    return render_template("upload.html")
+    return render_template("upload.html", active_page="upload")
 
 @app.route("/upload", methods=["POST"])
 def upload_csv():
@@ -107,7 +107,8 @@ def list_products():
                            sort_order=sort_order,
                            search_field=search_field,
                            search_value=search_value,
-                           exact_match=exact_match)
+                           exact_match=exact_match,
+                           active_page="products")
 
 @app.route("/products/delete-all", methods=["POST"])
 def delete_all_products():
