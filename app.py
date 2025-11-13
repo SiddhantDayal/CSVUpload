@@ -1,17 +1,26 @@
 from flask import Flask, render_template, request, flash, redirect, url_for
 from extensions import db
 import os, uuid
+from dotenv import load_dotenv
 
 from tasks import import_products_task
 from models import Product # Import Product model
 
+load_dotenv()
+
 app = Flask(__name__)
 
 app.config.update(
-    SQLALCHEMY_DATABASE_URI="sqlite:///acme.db",
+    # Change to PostgreSQL. 
+    # The user should set the DATABASE_URL environment variable.
+    SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", "postgresql://user:password@localhost:5432/acme"),
     UPLOAD_FOLDER=os.path.join(os.getcwd(), "uploads"),
-    SECRET_KEY='your_secret_key' # Needed for flashing messages
+    SECRET_KEY=os.environ.get("SECRET_KEY", "super_secret_dev_key") # Read from environment, with a dev default
 )
+
+# --- DEBUGGING PRINT ---
+print(f"--- Using Database URI: {app.config['SQLALCHEMY_DATABASE_URI']} ---")
+# --- END DEBUGGING ---
 
 db.init_app(app)
 
