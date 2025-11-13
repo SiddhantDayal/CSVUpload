@@ -42,6 +42,11 @@
         input:checked + .slider:before {
             transform: translateX(26px);
         }
+        /* Ensure forms containing action buttons don't add extra space */
+        .products-actions-column form {
+            margin: 0;
+            padding: 0;
+        }
     </style>
 {% endblock %}
 
@@ -119,9 +124,14 @@
                                 </label>
                             </td>
                             <td>
-                                <div style="display: flex; flex-direction: column; gap: 5px;">
-                                    <a href="{{ url_for('edit_product', product_id=product.id) }}?{{ request.query_string.decode('utf-8') }}" class="edit-btn">Edit</a>
-                                    <form action="{{ url_for('delete_product', product_id=product.id) }}" method="post" style="display:inline;">
+                                <div class="products-actions-column" style="display: flex; flex-direction: column; gap: 5px;">
+                                    <form action="{{ url_for('edit_product', product_id=product.id) }}" method="get">
+                                        {% for key, value in request.args.items() %}
+                                            <input type="hidden" name="{{ key }}" value="{{ value }}">
+                                        {% endfor %}
+                                        <button type="submit" class="edit-btn">Edit</button>
+                                    </form>
+                                    <form action="{{ url_for('delete_product', product_id=product.id) }}" method="post">
                                         <button type="submit" onclick="return confirm('Are you sure?');" class="delete-btn">Delete</button>
                                     </form>
                                 </div>
