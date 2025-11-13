@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: acme
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pg_data:/var/lib/postgresql/data # Persistent data for PostgreSQL
+    healthcheck: # Docker Compose will wait for this check to pass
+      test: ["CMD-SHELL", "pg_isready -U user -d acme"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - acme-network
+
+  redis:
+    image: redis:6-alpine
+    restart: always
+    healthcheck: # Docker Compose will wait for this check to pass
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - acme-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile # Refers to the Dockerfile for your Flask app
+    restart: always
+    ports:
+      - "5000:8080" # Map host port 5000 to container port 8080 (where Gunicorn listens)
+    environment:
+      # These variables must match the values used in your local .env or Cloud Run deployment
+      DATABASE_URL: "postgresql://user:password@db:5432/acme"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      SECRET_KEY: "super-secret-local-key" # Use a strong random key for local testing
+    volumes:
+      - uploads_data:/app/uploads # Mount shared volume for uploads
+    depends_on: # Ensure db and redis are healthy before starting app
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - acme-network
+    # Use the custom entrypoint script to run flask init-db before starting gunicorn
+    entrypoint: ["/app/docker-entrypoint.sh"] 
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery # Refers to the Dockerfile for your Celery worker
+    restart: always
+    environment:
+      # These variables must match the values used in your local .env or Cloud Run deployment
+      DATABASE_URL: "postgresql://user:password@db:5432/acme"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      SECRET_KEY: "super-secret-local-key" # Same key as app
+    volumes:
+      - uploads_data:/app/uploads # Mount shared volume for uploads
+    depends_on: # Ensure db and redis are healthy before starting worker
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - acme-network
+
+volumes:
+  pg_data: # Define a named volume for PostgreSQL data persistence
+  uploads_data: # Define a named volume for uploaded files
+
+networks:
+  acme-network: # Define a custom network for inter-container communication
+    driver: bridge

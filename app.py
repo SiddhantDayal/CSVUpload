@@ -51,9 +51,13 @@ def upload_csv():
 @app.route("/status/<task_id>")
 def task_status(task_id):
     task = celery.AsyncResult(task_id)
-    response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
-    if 'progress' in task.info:
-        response_data['progress'] = task.info['progress']
+    # Handle cases where task.info might be None
+    if task.info is None:
+        response_data = {'state': task.state, 'status': 'Pending... (no info yet)'}
+    else:
+        response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+        if 'progress' in task.info:
+            response_data['progress'] = task.info['progress']
     return jsonify(response_data)
 
 @app.route("/check-upload-status")
@@ -63,13 +67,16 @@ def check_upload_status():
         return jsonify({"status": "no_active_upload"})
 
     task = celery.AsyncResult(task_id)
-    response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+    # Handle cases where task.info might be None
+    if task.info is None:
+        response_data = {'state': task.state, 'status': 'Pending... (no info yet)'}
+    else:
+        response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+        if 'progress' in task.info:
+            response_data['progress'] = task.info['progress']
 
-    if 'progress' in task.info:
-        response_data['progress'] = task.info['progress']
-
-    if task.state in ['SUCCESS', 'FAILURE', 'REVOKED']: # Added REVOKED state for cleanup
-        session.pop('upload_task_id', None) # Clear task_id from session on completion/failure
+    if task.state in ['SUCCESS', 'FAILURE', 'REVOKED']:
+        session.pop('upload_task_id', None)
 
     return jsonify(response_data)
 

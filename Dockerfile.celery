@@ -1,0 +1,16 @@
+# Use the same base Python runtime as the Flask app
+FROM python:3.11-slim-bullseye
+
+WORKDIR /app
+
+# Install pip dependencies (same as Flask app)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Command to run the Celery worker
+# This worker will listen for tasks on the Redis broker
+# We will use --pool=solo for simplicity, but for production consider eventlet/gevent with proper setup.
+CMD celery -A app.celery worker --loglevel=info --pool=solo
