@@ -1,90 +1,12 @@
 {% extends "base.html" %}
 
-{% block styles %}
+{% block page_styles %}
     <style>
-        h1 { color: #343a40; }
-        .controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 20px;}
-        .filter-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .filter-form input[type="search"], .filter-form select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-        .filter-form button { background-color: #007bff; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        .filter-form button:hover { background-color: #0056b3; }
-        
-        .actions-group { display: flex; gap: 10px; margin-left: auto; }
-        .add-btn, .delete-btn { 
-            display: inline-block; 
-            padding: 8px 12px; 
-            border-radius: 4px; 
-            text-decoration: none; 
-            font-size: 14px;
-            font-weight: 500;
-            border: none;
-            cursor: pointer;
+        /* Specific styles for Webhooks page */
+        .last-triggered-col {
+            white-space: nowrap; /* Prevent date/time from wrapping */
         }
-        .add-btn { background-color: #28a745; color: white; }
-        .add-btn:hover { background-color: #218838; }
-        .delete-btn { background-color: #dc3545; color: white; }
-        .delete-btn:hover { background-color: #c82333; }
-
-        .flash-messages { margin-bottom: 20px; }
-        .flash { padding: 1rem; border-radius: .25rem; }
-        .flash.success { color: #155724; background-color: #d4edda; border-color: #c3e6cb; }
-        .flash.error { color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; }
-
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        th, td { border: 1px solid #dee2e6; padding: 12px 15px; text-align: left; vertical-align: middle; }
-        th { background-color: #f8f9fa; color: #495057; font-weight: 600; border-top: none; border-bottom-width: 2px; }
-        th a { color: #495057; text-decoration: none; display: block; }
-        th.sortable a {
-            position: relative;
-            padding-right: 18px; /* Space for the icon */
-        }
-        th.sortable a::after {
-            content: '';
-            position: absolute;
-            right: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 12px;
-            height: 12px;
-            background-image: url("{{ url_for('static', filename='assets/sort-result-icon.svg') }}");
-            filter: invert(0.5); /* Make it grey */
-            background-repeat: no-repeat;
-            background-position: center;
-            background-size: contain;
-            opacity: 0.6;
-            transition: opacity 0.2s;
-        }
-        th.sortable:hover a::after,
-        th.sorted a::after {
-            opacity: 1;
-            filter: invert(0); /* Make it black on hover/active */
-        }
-
-        tr:nth-child(even) { background-color: #f8f9fa; }
-        .pagination { margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 5px; }
-        .pagination a, .pagination span {
-            display: inline-block;
-            padding: 8px 12px;
-            margin: 0 2px;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            color: #007bff;
-            text-decoration: none;
-        }
-        .pagination a:hover {
-            background-color: #e9ecef;
-        }
-        .pagination .current {
-            background-color: #007bff;
-            color: white;
-            border-color: #007bff;
-        }
-        .pagination .disabled {
-            color: #6c757d;
-            border-color: #dee2e6;
-        }
-
-        /* Toggle Switch CSS */
+        /* Toggle Switch CSS (Specific to webhooks.html) - same as products.html */
         .toggle-switch {
             position: relative;
             display: inline-block;
@@ -123,21 +45,6 @@
         }
         input:checked + .slider:before {
             transform: translateX(26px);
-        }
-        .last-triggered-col {
-            white-space: nowrap; /* Prevent date/time from wrapping */
-        }
-        .test-webhook-btn {
-            background-color: #17a2b8; /* Info blue */
-            color: white;
-            padding: 6px 10px;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 0.85em;
-        }
-        .test-webhook-btn:hover {
-            background-color: #138496;
         }
     </style>
 {% endblock %}
@@ -215,11 +122,13 @@
                 <td>{{ webhook.last_status_code | default('N/A', true) }}</td>
                 <td>{{ webhook.last_response_time | default('N/A', true) }}</td>
                 <td>
-                    <button class="test-webhook-btn" data-webhook-id="{{ webhook.id }}">Test</button> |
-                    <a href="{{ url_for('edit_webhook', webhook_id=webhook.id) }}">Edit</a> |
-                    <form action="{{ url_for('delete_webhook', webhook_id=webhook.id) }}" method="post" style="display:inline;">
-                        <button type="submit" onclick="return confirm('Are you sure you want to delete this webhook?');" style="background:none; border:none; color:#007bff; cursor:pointer; padding:0; text-decoration:underline;">Delete</button>
-                    </form>
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <button class="test-btn" data-webhook-id="{{ webhook.id }}">Test</button>
+                        <a href="{{ url_for('edit_webhook', webhook_id=webhook.id) }}" class="edit-btn">Edit</a>
+                        <form action="{{ url_for('delete_webhook', webhook_id=webhook.id) }}" method="post">
+                            <button type="submit" onclick="return confirm('Are you sure you want to delete this webhook?');" class="delete-btn">Delete</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% endfor %}
@@ -309,7 +218,7 @@
             });
 
             // Test webhook button
-            const testWebhookButtons = document.querySelectorAll('.test-webhook-btn');
+            const testWebhookButtons = document.querySelectorAll('.test-btn');
             testWebhookButtons.forEach(button => {
                 button.addEventListener('click', function(e) {
                     e.preventDefault();
