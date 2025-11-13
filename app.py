@@ -76,8 +76,15 @@ def list_products():
     search_field = request.args.get('search_field', 'name', type=str) # Default search field to 'name'
     search_value = request.args.get('search_value', '', type=str)
     exact_match = request.args.get('exact_match', type=bool)
+    active_filter = request.args.get('active_filter', 'all', type=str) # New filter
 
     query = Product.query
+
+    # Status filter
+    if active_filter == 'active':
+        query = query.filter(Product.active.is_(True))
+    elif active_filter == 'inactive':
+        query = query.filter(Product.active.is_(False))
 
     # Advanced search filter
     allowed_fields = ['sku', 'name', 'description'] # Removed 'id'
@@ -89,7 +96,7 @@ def list_products():
             query = query.filter(search_column.ilike(f"%{search_value}%"))
 
     # Validate sort_by parameter
-    if sort_by not in ['sku', 'name', 'description']: # Removed 'id' and 'active'
+    if sort_by not in ['sku', 'name', 'description', 'active']: # Re-added 'active'
         sort_by = 'name' # Fallback to 'name'
     
     sort_column = getattr(Product, sort_by)
@@ -108,7 +115,21 @@ def list_products():
                            search_field=search_field,
                            search_value=search_value,
                            exact_match=exact_match,
+                           active_filter=active_filter, # Pass to template
                            active_page="products")
+
+@app.route("/products/<int:product_id>/toggle-active", methods=["POST"])
+def toggle_active(product_id):
+    """Toggles the active status of a product."""
+    product = Product.query.get_or_404(product_id)
+    try:
+        product.active = not product.active
+        db.session.commit()
+        return jsonify({'success': True, 'new_status': product.active})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route("/products/delete-all", methods=["POST"])
 def delete_all_products():
