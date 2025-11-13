@@ -1,28 +1,34 @@
-from flask import Flask, render_template, request, flash, redirect, url_for, jsonify
+from flask import Flask, render_template, request, flash, redirect, url_for, jsonify, session
 from extensions import db, make_celery
 import os, uuid
 from dotenv import load_dotenv
 
-from tasks import import_products_task
-from models import Product # Import Product model
+import tasks # Import the entire tasks module
+from repositories.product_repository import ProductRepository
+from repositories.webhook_repository import WebhookRepository
 
 load_dotenv()
 
 app = Flask(__name__)
 
+# --- CONFIGURATION ---
 app.config.update(
-    # Change to PostgreSQL. 
-    # The user should set the DATABASE_URL environment variable.
     SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", "postgresql://user:password@localhost:5432/acme"),
     UPLOAD_FOLDER=os.path.join(os.getcwd(), "uploads"),
-    SECRET_KEY=os.environ.get("SECRET_KEY", "super_secret_dev_key"), # Read from environment, with a dev default
+    SECRET_KEY=os.environ.get("SECRET_KEY", "super_secret_dev_key"), # IMPORTANT: A strong secret key is required for session security
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"),
     CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
 
+# --- EXTENSIONS ---
 db.init_app(app)
 celery = make_celery(app)
 
+# --- REPOSITORIES ---
+product_repo = ProductRepository()
+webhook_repo = WebhookRepository() # Instantiate WebhookRepository
+
+# --- ROUTES ---
 @app.route("/")
 def home():
     return render_template("upload.html", active_page="upload")
@@ -38,140 +44,315 @@ def upload_csv():
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
-    task = import_products_task.delay(filepath)
+    task = tasks.import_products_task.delay(filepath) # Assign the result to 'task'
+    session['upload_task_id'] = task.id
     return jsonify({"task_id": task.id})
-
 
 @app.route("/status/<task_id>")
 def task_status(task_id):
     task = celery.AsyncResult(task_id)
-    if task.state == 'PENDING':
-        # Job did not start yet
-        response = {
-            'state': task.state,
-            'status': 'Pending...'
-        }
-    elif task.state != 'FAILURE':
-        response = {
-            'state': task.state,
-            'status': task.info.get('status', ''),
-        }
-        if 'progress' in task.info:
-            response['progress'] = task.info['progress']
-    else:
-        # Something went wrong in the background job
-        response = {
-            'state': task.state,
-            'status': str(task.info),  # this is the exception raised
-        }
-    return jsonify(response)
+    response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+    if 'progress' in task.info:
+        response_data['progress'] = task.info['progress']
+    return jsonify(response_data)
 
+@app.route("/check-upload-status")
+def check_upload_status():
+    task_id = session.get('upload_task_id')
+    if not task_id:
+        return jsonify({"status": "no_active_upload"})
+
+    task = celery.AsyncResult(task_id)
+    response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+
+    if 'progress' in task.info:
+        response_data['progress'] = task.info['progress']
+
+    if task.state in ['SUCCESS', 'FAILURE', 'REVOKED']: # Added REVOKED state for cleanup
+        session.pop('upload_task_id', None) # Clear task_id from session on completion/failure
+
+    return jsonify(response_data)
+
+@app.route("/clear-upload-session", methods=["POST"])
+def clear_upload_session():
+    session.pop('upload_task_id', None)
+    return jsonify({'success': True})
+
+# --- Product Routes ---
 @app.route("/products")
 def list_products():
     page = request.args.get('page', 1, type=int)
-    sort_by = request.args.get('sort_by', 'name', type=str) # Default sort to 'name'
-    sort_order = request.args.get('sort_order', 'asc', type=str)
+    filters = {
+        'sort_by': request.args.get('sort_by', 'name', type=str),
+        'sort_order': request.args.get('sort_order', 'asc', type=str),
+        'search_field': request.args.get('search_field', 'name', type=str),
+        'search_value': request.args.get('search_value', '', type=str),
+        'exact_match': request.args.get('exact_match', type=bool),
+        'active_filter': request.args.get('active_filter', 'all', type=str)
+    }
     
-    # Advanced search parameters
-    search_field = request.args.get('search_field', 'name', type=str) # Default search field to 'name'
-    search_value = request.args.get('search_value', '', type=str)
-    exact_match = request.args.get('exact_match', type=bool)
-    active_filter = request.args.get('active_filter', 'all', type=str) # New filter
-
-    query = Product.query
-
-    # Status filter
-    if active_filter == 'active':
-        query = query.filter(Product.active.is_(True))
-    elif active_filter == 'inactive':
-        query = query.filter(Product.active.is_(False))
-
-    # Advanced search filter
-    allowed_fields = ['sku', 'name', 'description'] # Removed 'id'
-    if search_field in allowed_fields and search_value:
-        search_column = getattr(Product, search_field)
-        if exact_match:
-            query = query.filter(search_column == search_value)
-        else:
-            query = query.filter(search_column.ilike(f"%{search_value}%"))
-
-    # Validate sort_by parameter
-    if sort_by not in ['sku', 'name', 'description', 'active']: # Re-added 'active'
-        sort_by = 'name' # Fallback to 'name'
-    
-    sort_column = getattr(Product, sort_by)
-
-    if sort_order == 'desc':
-        query = query.order_by(sort_column.desc())
-    else:
-        query = query.order_by(sort_column.asc())
-
-    products = query.paginate(page=page, per_page=100)
+    products = product_repo.list_paginated(page=page, per_page=100, filters=filters)
     
     return render_template("products.html", 
                            products=products, 
-                           sort_by=sort_by, 
-                           sort_order=sort_order,
-                           search_field=search_field,
-                           search_value=search_value,
-                           exact_match=exact_match,
-                           active_filter=active_filter, # Pass to template
-                           active_page="products")
+                           active_page="products",
+                           **filters)
 
-@app.route("/products/<int:product_id>/toggle-active", methods=["POST"])
-def toggle_active(product_id):
-    """Toggles the active status of a product."""
-    product = Product.query.get_or_404(product_id)
-    try:
-        product.active = not product.active
-        db.session.commit()
-        return jsonify({'success': True, 'new_status': product.active})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+@app.route("/products/add", methods=["GET", "POST"])
+def add_product():
+    if request.method == "POST":
+        sku = request.form["sku"]
+        name = request.form["name"]
+        description = request.form["description"]
+        active = "active" in request.form
+        try:
+            product = product_repo.create(sku=sku, name=name, description=description, active=active)
+            flash(f"Product '{product.name}' added successfully!", "success")
+            
+            # Dispatch webhook for product_created event (new event type)
+            payload = {
+                "event": "product_created",
+                "product_id": product.id,
+                "new_data": {
+                    "id": product.id,
+                    "sku": product.sku,
+                    "name": product.name,
+                    "description": product.description,
+                    "active": product.active
+                }
+            }
+            tasks.send_webhook_event_task.delay('product_created', payload)
+            
+            return redirect(url_for("list_products"))
+        except Exception as e:
+            flash(f"Error adding product: {e}", "error")
+    return render_template("add_edit_product.html", active_page="products", title="Add Product")
 
-
-@app.route("/products/delete-all", methods=["POST"])
-def delete_all_products():
-    """Deletes all products from the database."""
-    try:
-        # Efficiently delete all rows
-        db.session.query(Product).delete()
-        db.session.commit()
-        flash("All products have been successfully deleted.", "success")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"An error occurred while deleting products: {e}", "error")
-    return redirect(url_for('list_products'))
 
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 def edit_product(product_id):
-    product = Product.query.get_or_404(product_id)
+    product = product_repo.get_by_id(product_id)
     if request.method == "POST":
-        product.name = request.form["name"]
-        product.description = request.form["description"]
-        product.active = "active" in request.form # Checkbox value presence
         try:
-            db.session.commit()
+            update_data = {
+                "name": request.form["name"],
+                "description": request.form["description"],
+                "active": "active" in request.form
+            }
+            # Store old data before update for potential webhook payload
+            old_product_data = {
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "description": product.description,
+                "active": product.active
+            }
+
+            product_repo.update(product, update_data)
             flash("Product updated successfully!", "success")
-            return redirect(url_for("list_products"))
+
+            # Dispatch webhook for product_updated event
+            payload = {
+                "event": "product_updated",
+                "product_id": product.id,
+                "changes": {
+                    "old_data": old_product_data,
+                    "new_data": {
+                        "id": product.id,
+                        "sku": product.sku,
+                        "name": product.name,
+                        "description": product.description,
+                        "active": product.active
+                    }
+                }
+            }
+            tasks.send_webhook_event_task.delay('product_updated', payload) # Use tasks.send_webhook_event_task
+
+            redirect_args = {k: v for k, v in request.form.items() if k not in ['name', 'description', 'active', 'sku', 'csrf_token']}
+            return redirect(url_for("list_products", **redirect_args))
         except Exception as e:
-            db.session.rollback()
             flash(f"Error updating product: {e}", "error")
-    return render_template("edit_product.html", product=product)
+    return render_template("add_edit_product.html", active_page="products", title="Edit Product", product=product)
+
+@app.route("/products/<int:product_id>/toggle-active", methods=["POST"])
+def toggle_active(product_id):
+    product = product_repo.get_by_id(product_id)
+    try:
+        # Capture old data before toggle
+        old_product_data = {
+            "id": product.id,
+            "sku": product.sku,
+            "name": product.name,
+            "description": product.description,
+            "active": product.active
+        }
+
+        product_repo.toggle_active(product) # This updates the product.active state
+
+        # Capture new data after toggle
+        new_product_data = {
+            "id": product.id,
+            "sku": product.sku,
+            "name": product.name,
+            "description": product.description,
+            "active": product.active
+        }
+        
+        # Dispatch webhook for product_updated event with consistent structure
+        payload = {
+            "event": "product_updated",
+            "product_id": product.id,
+            "changes": {
+                "old_data": old_product_data,
+                "new_data": new_product_data
+            }
+        }
+        tasks.send_webhook_event_task.delay('product_updated', payload)
+
+        return jsonify({'success': True, 'new_status': product.active})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route("/products/delete-all", methods=["POST"])
+def delete_all_products():
+    try:
+        # Optionally, count products before deletion if you want that in payload
+        # product_count = product_repo.get_count()
+
+        product_repo.delete_all()
+        flash("All products have been successfully deleted.", "success")
+        
+        # Dispatch webhook for bulk_products_deleted event
+        payload = {
+            "event": "bulk_products_deleted",
+            "message": "All products in the database have been deleted.",
+            # "deleted_count": product_count # if captured above
+        }
+        tasks.send_webhook_event_task.delay('bulk_products_deleted', payload)
+
+    except Exception as e:
+        flash(f"An error occurred while deleting products: {e}", "error")
+    return redirect(url_for('list_products'))
 
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
 def delete_product(product_id):
-    product = Product.query.get_or_404(product_id)
+    product = product_repo.get_by_id(product_id)
     try:
-        db.session.delete(product)
-        db.session.commit()
+        # Capture data of the product about to be deleted
+        deleted_product_data = {
+            "id": product.id,
+            "sku": product.sku,
+            "name": product.name,
+            "description": product.description,
+            "active": product.active
+        }
+
+        product_repo.delete(product)
         flash("Product deleted successfully!", "success")
+
+        # Dispatch webhook for product_deleted event
+        payload = {
+            "event": "product_deleted",
+            "product_id": deleted_product_data["id"],
+            "deleted_data": deleted_product_data
+        }
+        tasks.send_webhook_event_task.delay('product_deleted', payload)
+
     except Exception as e:
-        db.session.rollback()
         flash(f"Error deleting product: {e}", "error")
     return redirect(url_for("list_products"))
 
+# --- Webhook Routes ---
+@app.route("/webhooks")
+def list_webhooks():
+    page = request.args.get('page', 1, type=int)
+    filters = {
+        'sort_by': request.args.get('sort_by', 'id', type=str),
+        'sort_order': request.args.get('sort_order', 'asc', type=str),
+        'event_type_filter': request.args.get('event_type_filter', 'all', type=str)
+    }
+    webhooks = webhook_repo.list_paginated(page=page, per_page=10, filters=filters) # 10 webhooks per page
+    
+    # Define possible event types for the filter dropdown
+    event_types = sorted(list(set([wh.event_type for wh in webhook_repo.get_all_enabled()]))) # Get all unique event types
+    if not event_types: # Fallback if no webhooks exist yet
+        event_types = ['product_updated', 'csv_import_complete', 'product_deleted', 'bulk_products_deleted']
+
+    return render_template("webhooks.html", 
+                           webhooks=webhooks, 
+                           event_types=event_types,
+                           active_page="webhooks",
+                           **filters)
+
+@app.route("/webhooks/add", methods=["GET", "POST"])
+def add_webhook():
+    if request.method == "POST":
+        url = request.form["url"]
+        event_type = request.form["event_type"]
+        enabled = "enabled" in request.form
+        try:
+            webhook_repo.create(url=url, event_type=event_type, enabled=enabled)
+            flash("Webhook added successfully!", "success")
+            return redirect(url_for("list_webhooks"))
+        except Exception as e:
+            flash(f"Error adding webhook: {e}", "error")
+    possible_event_types = ['product_updated', 'csv_import_complete', 'product_deleted', 'bulk_products_deleted']
+    return render_template("add_edit_webhook.html", 
+                           active_page="webhooks", 
+                           title="Add Webhook", 
+                           possible_event_types=possible_event_types)
+
+@app.route("/webhooks/<int:webhook_id>/edit", methods=["GET", "POST"])
+def edit_webhook(webhook_id):
+    webhook = webhook_repo.get_by_id(webhook_id)
+    if request.method == "POST":
+        try:
+            update_data = {
+                "url": request.form["url"],
+                "event_type": request.form["event_type"],
+                "enabled": "enabled" in request.form
+            }
+            webhook_repo.update(webhook, update_data)
+            flash("Webhook updated successfully!", "success")
+            return redirect(url_for("list_webhooks"))
+        except Exception as e:
+            flash(f"Error updating webhook: {e}", "error")
+    possible_event_types = ['product_updated', 'csv_import_complete', 'product_deleted', 'bulk_products_deleted']
+    return render_template("add_edit_webhook.html", 
+                           active_page="webhooks", 
+                           title="Edit Webhook", 
+                           webhook=webhook, 
+                           possible_event_types=possible_event_types)
+
+@app.route("/webhooks/<int:webhook_id>/delete", methods=["POST"])
+def delete_webhook(webhook_id):
+    webhook = webhook_repo.get_by_id(webhook_id)
+    try:
+        webhook_repo.delete(webhook)
+        flash("Webhook deleted successfully!", "success")
+    except Exception as e:
+        flash(f"Error deleting webhook: {e}", "error")
+    return redirect(url_for("list_webhooks"))
+
+@app.route("/webhooks/<int:webhook_id>/toggle-enabled", methods=["POST"])
+def toggle_webhook_enabled(webhook_id):
+    webhook = webhook_repo.get_by_id(webhook_id)
+    try:
+        webhook_repo.toggle_enabled(webhook)
+        return jsonify({'success': True, 'new_status': webhook.enabled})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route("/webhooks/<int:webhook_id>/test", methods=["POST"])
+def test_webhook(webhook_id):
+    try:
+        # Queue the test webhook task
+        tasks.test_webhook_task.delay(webhook_id) # Use tasks.test_webhook_task
+        return jsonify({'success': True, 'message': 'Webhook test initiated successfully.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- CLI COMMANDS ---
 @app.cli.command("init-db")
 def init_db():
     """Clear existing data and create new tables."""

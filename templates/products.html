@@ -1,90 +1,8 @@
 {% extends "base.html" %}
 
-{% block styles %}
+{% block page_styles %}
     <style>
-        h1 { color: #343a40; }
-        .controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 20px;}
-        .search-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .search-form input[type="search"], .search-form select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-        .search-form button { background-color: #007bff; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        .search-form button:hover { background-color: #0056b3; }
-        .search-form label { display: flex; align-items: center; gap: 4px; font-size: 14px; }
-        
-        .actions-group { display: flex; gap: 10px; margin-left: auto; }
-        .delete-all-btn { 
-            display: inline-block; 
-            padding: 8px 12px; 
-            border-radius: 4px; 
-            text-decoration: none; 
-            font-size: 14px;
-            font-weight: 500;
-            border: none;
-            cursor: pointer;
-            background-color: #dc3545; 
-            color: white; 
-        }
-        .delete-all-btn:hover { background-color: #c82333; }
-
-        .flash-messages { margin-bottom: 20px; }
-        .flash { padding: 1rem; border-radius: .25rem; }
-        .flash.success { color: #155724; background-color: #d4edda; border-color: #c3e6cb; }
-        .flash.error { color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; }
-
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        th, td { border: 1px solid #dee2e6; padding: 12px 15px; text-align: left; vertical-align: middle; }
-        th { background-color: #f8f9fa; color: #495057; font-weight: 600; border-top: none; border-bottom-width: 2px; }
-        th a { color: #495057; text-decoration: none; display: block; }
-        th.sortable a {
-            position: relative;
-            padding-right: 18px; /* Space for the icon */
-        }
-        th.sortable a::after {
-            content: '';
-            position: absolute;
-            right: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 12px;
-            height: 12px;
-            background-image: url("{{ url_for('static', filename='assets/sort-result-icon.svg') }}");
-            filter: invert(0.5); /* Make it grey */
-            background-repeat: no-repeat;
-            background-position: center;
-            background-size: contain;
-            opacity: 0.6;
-            transition: opacity 0.2s;
-        }
-        th.sortable:hover a::after,
-        th.sorted a::after {
-            opacity: 1;
-            filter: invert(0); /* Make it black on hover/active */
-        }
-
-        tr:nth-child(even) { background-color: #f8f9fa; }
-        .pagination { margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 5px; }
-        .pagination a, .pagination span {
-            display: inline-block;
-            padding: 8px 12px;
-            margin: 0 2px;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            color: #007bff;
-            text-decoration: none;
-        }
-        .pagination a:hover {
-            background-color: #e9ecef;
-        }
-        .pagination .current {
-            background-color: #007bff;
-            color: white;
-            border-color: #007bff;
-        }
-        .pagination .disabled {
-            color: #6c757d;
-            border-color: #dee2e6;
-        }
-
-        /* Toggle Switch CSS */
+        /* Toggle Switch CSS (Specific to products.html) */
         .toggle-switch {
             position: relative;
             display: inline-block;
@@ -149,6 +67,7 @@
                         <button type="submit">Search</button>
                     </form>
                     <div class="actions-group">
+                        <a href="{{ url_for('add_product') }}" class="add-btn">Add New Product</a>
                         <form method="post" action="{{ url_for('delete_all_products') }}">
                             <button type="submit" class="delete-all-btn" onclick="return confirm('Are you sure you want to permanently delete ALL products? This cannot be undone.');">Delete All</button>
                         </form>
@@ -200,10 +119,12 @@
                                 </label>
                             </td>
                             <td>
-                                <a href="{{ url_for('edit_product', product_id=product.id) }}">Edit</a> |
-                                <form action="{{ url_for('delete_product', product_id=product.id) }}" method="post" style="display:inline;">
-                                    <button type="submit" onclick="return confirm('Are you sure?');" style="background:none; border:none; color:#007bff; cursor:pointer; padding:0; text-decoration:underline;">Delete</button>
-                                </form>
+                                <div style="display: flex; flex-direction: column; gap: 5px;">
+                                    <a href="{{ url_for('edit_product', product_id=product.id) }}?{{ request.query_string.decode('utf-8') }}" class="edit-btn">Edit</a>
+                                    <form action="{{ url_for('delete_product', product_id=product.id) }}" method="post" style="display:inline;">
+                                        <button type="submit" onclick="return confirm('Are you sure?');" class="delete-btn">Delete</button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -237,18 +158,6 @@
                     {% else %}
                         <span class="disabled">Next &raquo;</span>
                     {% endif %}
-            
-                    {# Go to Page Form #}
-                    <form method="get" action="{{ url_for('list_products') }}" style="display: inline-flex; margin-left: 10px; align-items: center; gap: 5px;">
-                        <input type="number" name="page" value="{{ products.page }}" min="1" max="{{ products.pages }}" style="width: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                        <input type="hidden" name="sort_by" value="{{ sort_by }}">
-                        <input type="hidden" name="sort_order" value="{{ sort_order }}">
-                        <input type="hidden" name="search_field" value="{{ search_field }}">
-                        <input type="hidden" name="search_value" value="{{ search_value }}">
-                        <input type="hidden" name="exact_match" value="{{ 'True' if exact_match else 'False' }}">
-                        <input type="hidden" name="active_filter" value="{{ active_filter }}">
-                        <button type="submit" style="background-color: #007bff; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer;">Go</button>
-                    </form>
                 </div>
             
                 {% else %}
@@ -298,4 +207,3 @@
                     });
                 </script>
             {% endblock %}
-            

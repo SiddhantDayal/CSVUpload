@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block page_styles %}
+<style>
+    .form-container {
+        background: #fff;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        max-width: 600px;
+        margin: 40px auto;
+    }
+    .form-container h1 {
+        margin-top: 0;
+        color: #343a40;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #495057;
+    }
+    .form-group input[type="text"],
+    .form-group textarea,
+    .form-group span.display-text { /* Style for non-editable text */
+        width: calc(100% - 22px);
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 16px;
+        background-color: #e9ecef; /* Light grey background for non-editable */
+        color: #495057;
+        display: inline-block; /* To respect width/padding */
+        box-sizing: border-box; /* Include padding/border in width */
+    }
+    .form-group textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    .form-group input[type="checkbox"] {
+        margin-right: 8px;
+    }
+    .form-group input[type="checkbox"] + label {
+        display: inline-block;
+        margin-bottom: 0;
+        font-weight: 400;
+    }
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 30px;
+    }
+    .form-actions button, .form-actions a {
+        padding: 10px 20px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+    }
+    .form-actions button[type="submit"] {
+        background-color: #007bff;
+        color: white;
+    }
+    .form-actions button[type="submit"]:hover {
+        background-color: #0056b3;
+    }
+    .form-actions .cancel-btn {
+        background-color: #6c757d;
+        color: white;
+    }
+    .form-actions .cancel-btn:hover {
+        background-color: #5a6268;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <h1>{{ title }}</h1>
+
+    {# Flash messages display #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages">
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        {# Hidden fields to preserve search/sort/pagination state #}
+        {% for key, value in request.args.items() %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
+
+        <div class="form-group">
+            <label for="sku">SKU:</label>
+            {% if product %}
+                <span id="sku" class="display-text">{{ product.sku }}</span>
+                <input type="hidden" name="sku" value="{{ product.sku }}"> {# Keep SKU in form for consistent POST data #}
+            {% else %}
+                <input type="text" id="sku" name="sku" value="" required>
+            {% endif %}
+        </div>
+        <div class="form-group">
+            <label for="name">Name:</label>
+            <input type="text" id="name" name="name" value="{{ product.name if product else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label for="description">Description:</label>
+            <textarea id="description" name="description">{{ product.description if product else '' }}</textarea>
+        </div>
+        <div class="form-group">
+            <input type="checkbox" id="active" name="active" {% if product and product.active %}checked{% elif not product %}checked{% endif %}>
+            <label for="active">Active</label>
+        </div>
+        <div class="form-actions">
+            <button type="submit">Save Changes</button>
+            <a href="{{ url_for('list_products') }}" class="cancel-btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
