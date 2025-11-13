@@ -1,9 +1,8 @@
 import pandas as pd
 import math
-from sqlalchemy import func
-from extensions import db
-from models import Product
 from celery import shared_task
+from repositories import ProductRepository
+from extensions import db
 
 def get_total_rows(filepath):
     """Helper function to get total number of rows in a file."""
@@ -15,11 +14,13 @@ def get_total_rows(filepath):
 def import_products_task(self, filepath):
     """
     Background task to import products from a CSV file.
-    This task is designed to be memory-efficient by processing the file in chunks.
-    It performs an "upsert" operation: updating existing products and inserting new ones.
+    Delegates the database logic to the ProductRepository.
     """
     from app import app # lazy import
+    
+    product_repo = ProductRepository()
     CHUNK_SIZE = 1000
+    
     try:
         total_rows = get_total_rows(filepath)
         processed_rows = 0
@@ -35,56 +36,23 @@ def import_products_task(self, filepath):
                 if 'sku' not in chunk.columns:
                     raise KeyError("CSV must contain a 'sku' column.")
 
-                # Normalize SKU data for case-insensitive comparison
-                chunk['sku_upper'] = chunk['sku'].str.upper()
-                
-                # Get SKUs from the current chunk
-                chunk_skus = chunk['sku_upper'].tolist()
-                
-                # Find existing products in the DB that match SKUs from the chunk
-                existing_products = Product.query.filter(func.upper(Product.sku).in_(chunk_skus)).all()
-                sku_to_product = {product.sku.upper(): product for product in existing_products}
-
-                products_to_add_map = {} # Use a map to handle in-chunk duplicates
-                
-                for _, row in chunk.iterrows():
-                    sku_upper = row['sku_upper']
-                    
-                    product = sku_to_product.get(sku_upper)
-                    
-                    # Prepare product data from the row
-                    product_data = {
-                        'name': row.get('name', ''),
-                        'description': row.get('description', ''),
-                        'active': True # Set as active on import/update
-                    }
-
-                    if product:
-                        # Update existing product
-                        product.name = product_data['name']
-                        product.description = product_data['description']
-                        product.active = product_data['active']
-                    else:
-                        # Stage new product for insertion, overwriting duplicates in the same chunk
-                        product_data['sku'] = row['sku'] # Use original SKU
-                        products_to_add_map[sku_upper] = product_data
-
-                # Bulk insert new products
-                if products_to_add_map:
-                    db.session.bulk_insert_mappings(Product, products_to_add_map.values())
-
-                # Commit session to save updates and new inserts
-                db.session.commit()
+                # Delegate the database work to the repository
+                product_repo.bulk_upsert(chunk)
                 
                 # Update progress
                 processed_rows += len(chunk)
                 progress = math.ceil((processed_rows / total_rows) * 100) if total_rows > 0 else 100
                 self.update_state(state='PROGRESS', meta={'status': f'Processing... {processed_rows}/{total_rows} rows', 'progress': progress})
 
+            # Commit the transaction after all chunks are processed
+            db.session.commit()
+
     except (FileNotFoundError, KeyError) as e:
+        db.session.rollback()
         self.update_state(state='FAILURE', meta={'status': f'Error: {e}'})
         raise
     except Exception as e:
+        db.session.rollback()
         self.update_state(state='FAILURE', meta={'status': f'An unexpected error occurred: {e}'})
         raise
 
