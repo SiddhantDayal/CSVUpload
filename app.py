@@ -4,7 +4,8 @@ import os, uuid
 from dotenv import load_dotenv
 
 import tasks # Import the entire tasks module
-from repositories import ProductRepository, WebhookRepository # Import both repositories
+from repositories.product_repository import ProductRepository
+from repositories.webhook_repository import WebhookRepository
 
 load_dotenv()
 

@@ -3,7 +3,8 @@ import math
 import requests
 import time
 from celery import shared_task
-from repositories import ProductRepository, WebhookRepository
+from repositories.product_repository import ProductRepository
+from repositories.webhook_repository import WebhookRepository
 from extensions import db
 
 def get_total_rows(filepath):
