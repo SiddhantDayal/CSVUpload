@@ -3,6 +3,13 @@ from models import Product
 from sqlalchemy import or_, func
 
 class ProductRepository:
+    def create(self, sku, name, description, active=True):
+        """Creates a new product."""
+        product = Product(sku=sku, name=name, description=description, active=active)
+        db.session.add(product)
+        db.session.commit()
+        return product
+
     def get_by_id(self, product_id):
         """Fetches a product by its ID."""
         return Product.query.get_or_404(product_id)

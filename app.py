@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, flash, redirect, url_for, jsonify
+from flask import Flask, render_template, request, flash, redirect, url_for, jsonify, session
 from extensions import db, make_celery
 import os, uuid
 from dotenv import load_dotenv
@@ -15,7 +15,7 @@ app = Flask(__name__)
 app.config.update(
     SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", "postgresql://user:password@localhost:5432/acme"),
     UPLOAD_FOLDER=os.path.join(os.getcwd(), "uploads"),
-    SECRET_KEY=os.environ.get("SECRET_KEY", "super_secret_dev_key"),
+    SECRET_KEY=os.environ.get("SECRET_KEY", "super_secret_dev_key"), # IMPORTANT: A strong secret key is required for session security
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"),
     CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
@@ -45,17 +45,38 @@ def upload_csv():
     file.save(filepath)
 
     task = tasks.import_products_task.delay(filepath) # Assign the result to 'task'
+    session['upload_task_id'] = task.id
     return jsonify({"task_id": task.id})
 
 @app.route("/status/<task_id>")
 def task_status(task_id):
     task = celery.AsyncResult(task_id)
-    response_data = {'state': task.state, 'status': str(task.info)}
-    if task.state == 'PENDING':
-        response_data['status'] = 'Pending...'
-    elif task.state != 'FAILURE':
-        response_data.update(task.info)
+    response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+    if 'progress' in task.info:
+        response_data['progress'] = task.info['progress']
     return jsonify(response_data)
+
+@app.route("/check-upload-status")
+def check_upload_status():
+    task_id = session.get('upload_task_id')
+    if not task_id:
+        return jsonify({"status": "no_active_upload"})
+
+    task = celery.AsyncResult(task_id)
+    response_data = {'state': task.state, 'status': task.info.get('status', 'Pending...')}
+
+    if 'progress' in task.info:
+        response_data['progress'] = task.info['progress']
+
+    if task.state in ['SUCCESS', 'FAILURE', 'REVOKED']: # Added REVOKED state for cleanup
+        session.pop('upload_task_id', None) # Clear task_id from session on completion/failure
+
+    return jsonify(response_data)
+
+@app.route("/clear-upload-session", methods=["POST"])
+def clear_upload_session():
+    session.pop('upload_task_id', None)
+    return jsonify({'success': True})
 
 # --- Product Routes ---
 @app.route("/products")
@@ -76,6 +97,82 @@ def list_products():
                            products=products, 
                            active_page="products",
                            **filters)
+
+@app.route("/products/add", methods=["GET", "POST"])
+def add_product():
+    if request.method == "POST":
+        sku = request.form["sku"]
+        name = request.form["name"]
+        description = request.form["description"]
+        active = "active" in request.form
+        try:
+            product = product_repo.create(sku=sku, name=name, description=description, active=active)
+            flash(f"Product '{product.name}' added successfully!", "success")
+            
+            # Dispatch webhook for product_created event (new event type)
+            payload = {
+                "event": "product_created",
+                "product_id": product.id,
+                "new_data": {
+                    "id": product.id,
+                    "sku": product.sku,
+                    "name": product.name,
+                    "description": product.description,
+                    "active": product.active
+                }
+            }
+            tasks.send_webhook_event_task.delay('product_created', payload)
+            
+            return redirect(url_for("list_products"))
+        except Exception as e:
+            flash(f"Error adding product: {e}", "error")
+    return render_template("add_edit_product.html", active_page="products", title="Add Product")
+
+
+@app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
+def edit_product(product_id):
+    product = product_repo.get_by_id(product_id)
+    if request.method == "POST":
+        try:
+            update_data = {
+                "name": request.form["name"],
+                "description": request.form["description"],
+                "active": "active" in request.form
+            }
+            # Store old data before update for potential webhook payload
+            old_product_data = {
+                "id": product.id,
+                "sku": product.sku,
+                "name": product.name,
+                "description": product.description,
+                "active": product.active
+            }
+
+            product_repo.update(product, update_data)
+            flash("Product updated successfully!", "success")
+
+            # Dispatch webhook for product_updated event
+            payload = {
+                "event": "product_updated",
+                "product_id": product.id,
+                "changes": {
+                    "old_data": old_product_data,
+                    "new_data": {
+                        "id": product.id,
+                        "sku": product.sku,
+                        "name": product.name,
+                        "description": product.description,
+                        "active": product.active
+                    }
+                }
+            }
+            tasks.send_webhook_event_task.delay('product_updated', payload) # Use tasks.send_webhook_event_task
+
+            redirect_args = {k: v for k, v in request.form.items() if k not in ['name', 'description', 'active', 'sku', 'csrf_token']}
+            return redirect(url_for("list_products", **redirect_args))
+        except Exception as e:
+            flash(f"Error updating product: {e}", "error")
+    return render_template("add_edit_product.html", active_page="products", title="Edit Product", product=product)
 
 @app.route("/products/<int:product_id>/toggle-active", methods=["POST"])
 def toggle_active(product_id):
@@ -136,51 +233,6 @@ def delete_all_products():
     except Exception as e:
         flash(f"An error occurred while deleting products: {e}", "error")
     return redirect(url_for('list_products'))
-
-@app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
-def edit_product(product_id):
-    product = product_repo.get_by_id(product_id)
-    if request.method == "POST":
-        try:
-            update_data = {
-                "name": request.form["name"],
-                "description": request.form["description"],
-                "active": "active" in request.form
-            }
-            # Store old data before update for potential webhook payload
-            old_product_data = {
-                "id": product.id,
-                "sku": product.sku,
-                "name": product.name,
-                "description": product.description,
-                "active": product.active
-            }
-
-            product_repo.update(product, update_data)
-            flash("Product updated successfully!", "success")
-
-            # Dispatch webhook for product_updated event
-            payload = {
-                "event": "product_updated",
-                "product_id": product.id,
-                "changes": {
-                    "old_data": old_product_data,
-                    "new_data": {
-                        "id": product.id,
-                        "sku": product.sku,
-                        "name": product.name,
-                        "description": product.description,
-                        "active": product.active
-                    }
-                }
-            }
-            tasks.send_webhook_event_task.delay('product_updated', payload) # Use tasks.send_webhook_event_task
-
-            redirect_args = {k: v for k, v in request.form.items() if k not in ['name', 'description', 'active', 'csrf_token']}
-            return redirect(url_for("list_products", **redirect_args))
-        except Exception as e:
-            flash(f"Error updating product: {e}", "error")
-    return render_template("edit_product.html", product=product)
 
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
 def delete_product(product_id):
