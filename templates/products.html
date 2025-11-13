@@ -7,7 +7,25 @@
         h1 { color: #0056b3; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-        th { background-color: #007bff; color: white; }
+        th { background-color: #007bff; color: white; position: relative; }
+        th a { color: white; text-decoration: none; display: block; }
+        th.sortable a {
+            position: relative;
+            padding-right: 18px; /* Space for the icon */
+        }
+        th.sortable a::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            background-image: url('/static/assets/sort-result-icon.svg');
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+        }
         tr:nth-child(even) { background-color: #f2f2f2; }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
@@ -21,26 +39,55 @@
         }
         .active-true { background-color: #28a745; } /* Green */
         .active-false { background-color: #dc3545; } /* Red */
+        .pagination { margin-top: 20px; text-align: center; }
+        .pagination a, .pagination span {
+            display: inline-block;
+            padding: 8px 12px;
+            margin: 0 2px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #007bff;
+        }
+        .pagination .current {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .pagination .disabled {
+            color: #ccc;
+            border-color: #eee;
+        }
     </style>
 </head>
 <body>
     <h1>Product List</h1>
     <a href="/" class="back-link">Back to Upload</a>
 
-    {% if products %}
+    {% if products.items %}
     <table>
         <thead>
             <tr>
-                <th>ID</th>
-                <th>SKU</th>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Active</th>
+                {% set next_order = 'desc' if sort_order == 'asc' else 'asc' %}
+                <th class="sortable {% if sort_by == 'id' %}sorted-{{ sort_order }}{% endif %}">
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='id', sort_order=next_order if sort_by == 'id' else 'asc') }}">ID</a>
+                </th>
+                <th class="sortable {% if sort_by == 'sku' %}sorted-{{ sort_order }}{% endif %}">
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='sku', sort_order=next_order if sort_by == 'sku' else 'asc') }}">SKU</a>
+                </th>
+                <th class="sortable {% if sort_by == 'name' %}sorted-{{ sort_order }}{% endif %}">
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='name', sort_order=next_order if sort_by == 'name' else 'asc') }}">Name</a>
+                </th>
+                <th class="sortable {% if sort_by == 'description' %}sorted-{{ sort_order }}{% endif %}">
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='description', sort_order=next_order if sort_by == 'description' else 'asc') }}">Description</a>
+                </th>
+                <th class="sortable {% if sort_by == 'active' %}sorted-{{ sort_order }}{% endif %}" >
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='active', sort_order=next_order if sort_by == 'active' else 'asc') }}">Active</a>
+                </th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody>
-            {% for product in products %}
+            {% for product in products.items %}
             <tr>
                 <td>{{ product.id }}</td>
                 <td>{{ product.sku }}</td>
@@ -61,6 +108,36 @@
             {% endfor %}
         </tbody>
     </table>
+
+    <div class="pagination">
+        {# Previous Page Link #}
+        {% if products.has_prev %}
+            <a href="{{ url_for('list_products', page=products.prev_num, sort_by=sort_by, sort_order=sort_order) }}">&laquo; Previous</a>
+        {% else %}
+            <span class="disabled">&laquo; Previous</span>
+        {% endif %}
+
+        {# Page Numbers #}
+        {% for page_num in products.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if page_num %}
+                {% if products.page == page_num %}
+                    <span class="current">{{ page_num }}</span>
+                {% else %}
+                    <a href="{{ url_for('list_products', page=page_num, sort_by=sort_by, sort_order=sort_order) }}">{{ page_num }}</a>
+                {% endif %}
+            {% else %}
+                <span>...</span>
+            {% endif %}
+        {% endfor %}
+
+        {# Next Page Link #}
+        {% if products.has_next %}
+            <a href="{{ url_for('list_products', page=products.next_num, sort_by=sort_by, sort_order=sort_order) }}">Next &raquo;</a>
+        {% else %}
+            <span class="disabled">Next &raquo;</span>
+        {% endif %}
+    </div>
+
     {% else %}
     <p>No products found. Upload a CSV to add products!</p>
     {% endif %}

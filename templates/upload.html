@@ -10,26 +10,109 @@
         button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
         button:hover { background-color: #0056b3; }
         #status { margin-top: 20px; font-size: 16px; color: #555; }
+        #progress-bar-container { width: 100%; background-color: #eee; border-radius: 4px; margin-top: 20px; display: none; }
+        #progress-bar { width: 0%; height: 20px; background-color: #007bff; border-radius: 4px; text-align: center; color: white; line-height: 20px; }
     </style>
 </head>
 <body>
     <h2>Upload Products CSV</h2>
     <p><a href="{{ url_for('list_products') }}">View All Products</a></p>
-    <form action="/upload" method="post" enctype="multipart/form-data">
+    <form id="upload-form" enctype="multipart/form-data">
         <input type="file" name="file" accept=".csv" required />
         <button type="submit">Upload and Process</button>
     </form>
 
-    <!-- Display result message from server -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div id="status">
-            {% for category, message in messages %}
-                <div class="{{ category }}">{{ message }}</div>
-            {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
+    <div id="progress-bar-container">
+        <div id="progress-bar">0%</div>
+    </div>
+    <div id="status"></div>
+
+    <script>
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            var formData = new FormData(this);
+            var statusDiv = document.getElementById('status');
+            var progressBarContainer = document.getElementById('progress-bar-container');
+            var progressBar = document.getElementById('progress-bar');
+            var fileInput = this.querySelector('input[type="file"]');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.textContent = 'Please select a file to upload.';
+                statusDiv.style.color = 'red';
+                return;
+            }
+
+            statusDiv.textContent = 'Uploading...';
+            statusDiv.style.color = '#555';
+            progressBarContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    statusDiv.textContent = 'Error: ' + data.error;
+                    statusDiv.style.color = 'red';
+                    progressBarContainer.style.display = 'none';
+                    return;
+                }
+                statusDiv.textContent = 'Processing...';
+                pollTaskStatus(data.task_id);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                statusDiv.textContent = 'Upload failed. See console for details.';
+                statusDiv.style.color = 'red';
+                progressBarContainer.style.display = 'none';
+            });
+        });
+
+        function pollTaskStatus(taskId) {
+            var statusDiv = document.getElementById('status');
+            var progressBarContainer = document.getElementById('progress-bar-container');
+            var progressBar = document.getElementById('progress-bar');
+
+            var interval = setInterval(() => {
+                fetch(`/status/${taskId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        statusDiv.textContent = data.status;
+                        
+                        if (data.progress) {
+                            var percent = data.progress;
+                            progressBar.style.width = percent + '%';
+                            progressBar.textContent = percent + '%';
+                        }
+
+                        if (data.state === 'SUCCESS') {
+                            clearInterval(interval);
+                            statusDiv.textContent = 'Import complete!';
+                            statusDiv.style.color = 'green';
+                            progressBar.style.width = '100%';
+                            progressBar.textContent = '100%';
+                             setTimeout(() => { // Redirect after a short delay
+                                window.location.href = "{{ url_for('list_products') }}";
+                            }, 1000);
+                        } else if (data.state === 'FAILURE') {
+                            clearInterval(interval);
+                            statusDiv.textContent = 'Import failed: ' + data.status;
+                            statusDiv.style.color = 'red';
+                        }
+                    })
+                    .catch(error => {
+                        clearInterval(interval);
+                        console.error('Error polling status:', error);
+                        statusDiv.textContent = 'Error fetching status. See console.';
+                        statusDiv.style.color = 'red';
+                    });
+            }, 2000); // Poll every 2 seconds
+        }
+    </script>
 </body>
 </html>
 
