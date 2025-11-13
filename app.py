@@ -106,7 +106,10 @@ def edit_product(product_id):
             }
             product_repo.update(product, update_data)
             flash("Product updated successfully!", "success")
-            return redirect(url_for("list_products"))
+
+            # Reconstruct redirect URL with all original parameters
+            redirect_args = {k: v for k, v in request.form.items() if k not in ['name', 'description', 'active', 'csrf_token']}
+            return redirect(url_for("list_products", **redirect_args))
         except Exception as e:
             flash(f"Error updating product: {e}", "error")
     return render_template("edit_product.html", product=product)

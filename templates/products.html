@@ -200,7 +200,7 @@
                                 </label>
                             </td>
                             <td>
-                                <a href="{{ url_for('edit_product', product_id=product.id) }}">Edit</a> |
+                                <a href="{{ url_for('edit_product', product_id=product.id) }}?{{ request.query_string.decode('utf-8') }}">Edit</a> |
                                 <form action="{{ url_for('delete_product', product_id=product.id) }}" method="post" style="display:inline;">
                                     <button type="submit" onclick="return confirm('Are you sure?');" style="background:none; border:none; color:#007bff; cursor:pointer; padding:0; text-decoration:underline;">Delete</button>
                                 </form>

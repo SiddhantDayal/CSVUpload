@@ -34,6 +34,9 @@
     {% endwith %}
 
     <form method="post">
+        {% for key, value in request.args.items() %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
         <div>
             <label for="sku">SKU:</label>
             <input type="text" id="sku" name="sku" value="{{ product.sku }}" readonly>
