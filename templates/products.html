@@ -5,6 +5,12 @@
     <style>
         body { font-family: sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
         h1 { color: #0056b3; }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;}
+        .search-form { display: flex; gap: 10px; align-items: center; }
+        .search-form input[type="search"], .search-form select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .search-form button { background-color: #007bff; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; }
+        .search-form button:hover { background-color: #0056b3; }
+        .search-form label { display: flex; align-items: center; gap: 4px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
         th { background-color: #007bff; color: white; position: relative; }
@@ -29,7 +35,8 @@
         tr:nth-child(even) { background-color: #f2f2f2; }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        .back-link { display: block; margin-top: 20px; }
+        .back-link { display: inline-block; padding: 8px 12px; background-color: #6c757d; color: white; border-radius: 4px; text-decoration: none; }
+        .back-link:hover { background-color: #5a6268; text-decoration: none; }
         .active-status {
             padding: 5px 10px;
             border-radius: 3px;
@@ -61,27 +68,51 @@
 </head>
 <body>
     <h1>Product List</h1>
-    <a href="/" class="back-link">Back to Upload</a>
+    <div class="controls">
+        <a href="/" class="back-link">Back to Upload</a>
+        <form method="get" action="{{ url_for('list_products') }}" class="search-form">
+            <select name="search_field">
+                <option value="sku" {% if search_field == 'sku' %}selected{% endif %}>SKU</option>
+                <option value="name" {% if search_field == 'name' %}selected{% endif %}>Name</option>
+                <option value="description" {% if search_field == 'description' %}selected{% endif %}>Description</option>
+            </select>
+            <input type="search" name="search_value" value="{{ search_value or '' }}" placeholder="Search...">
+            <label>
+                <input type="checkbox" name="exact_match" value="True" {% if exact_match %}checked{% endif %}>
+                Exact Match
+            </label>
+            <button type="submit">Search</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_all_products') }}" style="margin-left: auto;">
+            <button type="submit" class="delete-all-btn" onclick="return confirm('Are you sure you want to permanently delete ALL products? This cannot be undone.');">Delete All Products</button>
+        </form>
+    </div>
+
+    {# Flash messages display #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages">
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
 
     {% if products.items %}
     <table>
         <thead>
             <tr>
                 {% set next_order = 'desc' if sort_order == 'asc' else 'asc' %}
-                <th class="sortable {% if sort_by == 'id' %}sorted-{{ sort_order }}{% endif %}">
-                    <a href="{{ url_for('list_products', page=products.page, sort_by='id', sort_order=next_order if sort_by == 'id' else 'asc') }}">ID</a>
-                </th>
                 <th class="sortable {% if sort_by == 'sku' %}sorted-{{ sort_order }}{% endif %}">
-                    <a href="{{ url_for('list_products', page=products.page, sort_by='sku', sort_order=next_order if sort_by == 'sku' else 'asc') }}">SKU</a>
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='sku', sort_order=next_order if sort_by == 'sku' else 'asc', search_field=search_field, search_value=search_value, exact_match=exact_match) }}">SKU</a>
                 </th>
                 <th class="sortable {% if sort_by == 'name' %}sorted-{{ sort_order }}{% endif %}">
-                    <a href="{{ url_for('list_products', page=products.page, sort_by='name', sort_order=next_order if sort_by == 'name' else 'asc') }}">Name</a>
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='name', sort_order=next_order if sort_by == 'name' else 'asc', search_field=search_field, search_value=search_value, exact_match=exact_match) }}">Name</a>
                 </th>
                 <th class="sortable {% if sort_by == 'description' %}sorted-{{ sort_order }}{% endif %}">
-                    <a href="{{ url_for('list_products', page=products.page, sort_by='description', sort_order=next_order if sort_by == 'description' else 'asc') }}">Description</a>
-                </th>
-                <th class="sortable {% if sort_by == 'active' %}sorted-{{ sort_order }}{% endif %}" >
-                    <a href="{{ url_for('list_products', page=products.page, sort_by='active', sort_order=next_order if sort_by == 'active' else 'asc') }}">Active</a>
+                    <a href="{{ url_for('list_products', page=products.page, sort_by='description', sort_order=next_order if sort_by == 'description' else 'asc', search_field=search_field, search_value=search_value, exact_match=exact_match) }}">Description</a>
                 </th>
                 <th>Actions</th>
             </tr>
@@ -89,15 +120,9 @@
         <tbody>
             {% for product in products.items %}
             <tr>
-                <td>{{ product.id }}</td>
                 <td>{{ product.sku }}</td>
                 <td>{{ product.name }}</td>
                 <td>{{ product.description }}</td>
-                <td>
-                    <span class="active-status active-{{ product.active | lower }}">
-                        {{ 'Active' if product.active else 'Inactive' }}
-                    </span>
-                </td>
                 <td>
                     <a href="/products/{{ product.id }}/edit">Edit</a> |
                     <form action="/products/{{ product.id }}/delete" method="post" style="display:inline;">
@@ -112,7 +137,7 @@
     <div class="pagination">
         {# Previous Page Link #}
         {% if products.has_prev %}
-            <a href="{{ url_for('list_products', page=products.prev_num, sort_by=sort_by, sort_order=sort_order) }}">&laquo; Previous</a>
+            <a href="{{ url_for('list_products', page=products.prev_num, sort_by=sort_by, sort_order=sort_order, search_field=search_field, search_value=search_value, exact_match=exact_match) }}">&laquo; Previous</a>
         {% else %}
             <span class="disabled">&laquo; Previous</span>
         {% endif %}
@@ -123,7 +148,7 @@
                 {% if products.page == page_num %}
                     <span class="current">{{ page_num }}</span>
                 {% else %}
-                    <a href="{{ url_for('list_products', page=page_num, sort_by=sort_by, sort_order=sort_order) }}">{{ page_num }}</a>
+                    <a href="{{ url_for('list_products', page=page_num, sort_by=sort_by, sort_order=sort_order, search_field=search_field, search_value=search_value, exact_match=exact_match) }}">{{ page_num }}</a>
                 {% endif %}
             {% else %}
                 <span>...</span>
@@ -132,14 +157,25 @@
 
         {# Next Page Link #}
         {% if products.has_next %}
-            <a href="{{ url_for('list_products', page=products.next_num, sort_by=sort_by, sort_order=sort_order) }}">Next &raquo;</a>
+            <a href="{{ url_for('list_products', page=products.next_num, sort_by=sort_by, sort_order=sort_order, search_field=search_field, search_value=search_value, exact_match=exact_match) }}">Next &raquo;</a>
         {% else %}
             <span class="disabled">Next &raquo;</span>
         {% endif %}
+
+        {# Go to Page Form #}
+        <form method="get" action="{{ url_for('list_products') }}" style="display: inline-flex; margin-left: 10px; align-items: center; gap: 5px;">
+            <input type="number" name="page" value="{{ products.page }}" min="1" max="{{ products.pages }}" style="width: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            <input type="hidden" name="sort_by" value="{{ sort_by }}">
+            <input type="hidden" name="sort_order" value="{{ sort_order }}">
+            <input type="hidden" name="search_field" value="{{ search_field }}">
+            <input type="hidden" name="search_value" value="{{ search_value }}">
+            <input type="hidden" name="exact_match" value="{{ 'True' if exact_match else 'False' }}">
+            <button type="submit" style="background-color: #007bff; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer;">Go</button>
+        </form>
     </div>
 
     {% else %}
-    <p>No products found. Upload a CSV to add products!</p>
+    <p>No products found matching your search. <a href="{{ url_for('list_products') }}">Clear search</a>.</p>
     {% endif %}
 </body>
 </html>

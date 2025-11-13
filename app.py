@@ -68,31 +68,59 @@ def task_status(task_id):
 
 @app.route("/products")
 def list_products():
-    # Sorting parameters
-    sort_by = request.args.get('sort_by', 'id', type=str)
+    page = request.args.get('page', 1, type=int)
+    sort_by = request.args.get('sort_by', 'name', type=str) # Default sort to 'name'
     sort_order = request.args.get('sort_order', 'asc', type=str)
-
-    # Validate sort_by parameter to prevent arbitrary input
-    if sort_by not in ['id', 'sku', 'name', 'description', 'active']:
-        sort_by = 'id'
     
-    # Get the column attribute from the Product model
+    # Advanced search parameters
+    search_field = request.args.get('search_field', 'name', type=str) # Default search field to 'name'
+    search_value = request.args.get('search_value', '', type=str)
+    exact_match = request.args.get('exact_match', type=bool)
+
+    query = Product.query
+
+    # Advanced search filter
+    allowed_fields = ['sku', 'name', 'description'] # Removed 'id'
+    if search_field in allowed_fields and search_value:
+        search_column = getattr(Product, search_field)
+        if exact_match:
+            query = query.filter(search_column == search_value)
+        else:
+            query = query.filter(search_column.ilike(f"%{search_value}%"))
+
+    # Validate sort_by parameter
+    if sort_by not in ['sku', 'name', 'description']: # Removed 'id' and 'active'
+        sort_by = 'name' # Fallback to 'name'
+    
     sort_column = getattr(Product, sort_by)
 
-    # Apply descending order if requested
     if sort_order == 'desc':
-        query = Product.query.order_by(sort_column.desc())
+        query = query.order_by(sort_column.desc())
     else:
-        query = Product.query.order_by(sort_column.asc())
+        query = query.order_by(sort_column.asc())
 
-    # Pagination
-    page = request.args.get('page', 1, type=int)
     products = query.paginate(page=page, per_page=100)
     
     return render_template("products.html", 
                            products=products, 
                            sort_by=sort_by, 
-                           sort_order=sort_order)
+                           sort_order=sort_order,
+                           search_field=search_field,
+                           search_value=search_value,
+                           exact_match=exact_match)
+
+@app.route("/products/delete-all", methods=["POST"])
+def delete_all_products():
+    """Deletes all products from the database."""
+    try:
+        # Efficiently delete all rows
+        db.session.query(Product).delete()
+        db.session.commit()
+        flash("All products have been successfully deleted.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"An error occurred while deleting products: {e}", "error")
+    return redirect(url_for('list_products'))
 
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 def edit_product(product_id):
