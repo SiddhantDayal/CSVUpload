@@ -6,6 +6,7 @@ services:
     name: acme-flask-app
     env: python
     buildCommand: "./build.sh"
+    preDeployCommand: "./pre-deploy.sh" # Run migrations before app starts
     startCommand: "gunicorn -w 4 app:app"
     envVars:
       - fromGroup: acme-env # Shared environment variables
@@ -23,19 +24,5 @@ services:
     startCommand: "celery -A app.celery worker --loglevel=info"
     envVars:
       - fromGroup: acme-env # Shared environment variables
-      - key: PYTHON_VERSION
-        value: 3.11.9
-
-  # --------------------------------
-  # Run DB migrations automatically
-  # --------------------------------
-  - type: cron
-    name: db-migration
-    env: python
-    schedule: "ON_DEPLOY"
-    buildCommand: "./build.sh"
-    startCommand: "flask init-db"
-    envVars:
-      - fromGroup: acme-env
       - key: PYTHON_VERSION
         value: 3.11.9
