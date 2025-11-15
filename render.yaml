@@ -6,7 +6,6 @@ services:
     name: acme-flask-app
     env: python
     buildCommand: "./build.sh"
-    preDeployCommand: "./pre-deploy.sh" # Run migrations before app starts
     startCommand: "gunicorn -w 4 app:app"
     envVars:
       - fromGroup: acme-env # Shared environment variables
