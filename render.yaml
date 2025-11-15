@@ -25,14 +25,14 @@ services:
       - fromGroup: acme-env # Shared environment variables
       - key: PYTHON_VERSION
         value: 3.11.9
-    autoDeploy: true
-    
-  # ---------------------
-  #  Database Migration Job
-  # ---------------------
-  - type: job
+
+  # --------------------------------
+  # Run DB migrations automatically
+  # --------------------------------
+  - type: cron
     name: db-migration
     env: python
+    schedule: "ON_DEPLOY"
     buildCommand: "./build.sh"
     startCommand: "flask init-db"
     envVars:
