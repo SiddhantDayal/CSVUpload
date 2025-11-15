@@ -130,6 +130,22 @@
         .pagination form input[type="number"] { width: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
         .pagination form button { background-color: #007bff; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; }
 
+        /* Aggressive styling for uniform action buttons in table columns */
+        .products-actions-column form,
+        .webhooks-actions-column form {
+            display: block; /* Ensure form takes full width to control button width */
+            margin: 0;
+            padding: 0;
+            width: 100%; /* Make form fill its parent flex item */
+        }
+
+        .products-actions-column form button,
+        .webhooks-actions-column form button {
+            width: 100%; /* Force button to take full width of its form */
+            margin: 0;
+            padding: 8px 12px; /* Re-apply button padding if needed */
+        }
+
     </style>
     {% block page_styles %}{% endblock %}
 </head>
