@@ -30,7 +30,7 @@ services:
   # ---------------------
   #  Database Migration Job
   # ---------------------
-  - type: pre_deploy
+  - type: job
     name: db-migration
     env: python
     buildCommand: "./build.sh"
